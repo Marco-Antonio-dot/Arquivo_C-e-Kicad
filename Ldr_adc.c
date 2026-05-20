@@ -7,9 +7,14 @@
     Estouro do timer 1, aprx: 65ms.
     Modo Sleep acionado após 4 minutos aproximadamente de funcionamento.
     Data de inicio 15/09/2025.
-    Última atualização 16/05/2026.
+    Última atualização 20/05/2026.
 
 */
+
+#define val_limpo   900
+#define val_sujo     40
+#define N_mediamovel 10
+
 
 sbit LCD_RS at RB2_bit;
 sbit LCD_EN at RB3_bit;
@@ -27,20 +32,25 @@ sbit LCD_D7_Direction at TRISB7_bit;
 
 int ldr, ldr2, aux;
 char cen, dez, uni;
-char chr, count, vet[7], txt[7];
+char chr, count, vet[7]={0}, txt[7]={0};
 char flags, i, j;
 bit clr;
 unsigned long contador;
 short last_read, s1;
-char txt1[7], txt2[7];
+char txt1[7]={0}, txt2[7]={0};
 
-void Duty();
+float historico_ldr2[N_mediamovel]={0};
+int indice_ldr2=0;
+
 void Show_disp();
 void Menu1();
 void Menu2();
 void Clear();
 void Butt();
 void GravaEEprom();
+void ldr1_func();
+void Ldr2_func();
+
 
 void interrupt()
 {
@@ -82,6 +92,8 @@ void main()
  portb=0x00;
 
  trisc=0x90;
+ portc=0x2b;
+ delay_ms(3000);
  portc=0x01;
  
  portc |=(1<<1);
@@ -92,6 +104,15 @@ void main()
  ccpr1l=0x00;
  
  delay_ms(1000);
+ 
+ for(i=0; i< N_mediamovel; i++)
+  {
+     Ldr1_func();
+     Ldr2_func();
+     delay_ms(100);
+
+  }//end for
+  //count=0x01;
  
  lcd_init();
  lcd_cmd(_LCD_CURSOR_OFF);
@@ -106,42 +127,47 @@ void main()
  bytetostr(s1, txt1);
  lcd_out(1,1,"sensorLed->");
  lcd_out(1, 13, txt1);
- lcd_chr_cp('%');
+ lcd_out_cp("%");
  delay_ms(2000);
  lcd_cmd(_LCD_CLEAR);
  delay_ms(500);
 
- last_read=EEPROM_Read(0x00);
- delay_ms(1);
- bytetostr(last_read, txt2);
-  lcd_out(2, 7, txt2);
- lcd_chr_cp('%');
  
- for(i=0; i<20; i++)
- {
-   lcd_cmd(_LCD_SHIFT_LEFT);
-   lcd_out(1,1,"Ultima leitura salva");
-   delay_ms(200);
-   
- }//end for
- 
- for(i=20; i>0; i--)
- {
-   lcd_cmd(_LCD_SHIFT_RIGHT);
-   lcd_out(1,1,"Ultima leitura salva");
-   delay_ms(200);
-   
- }//end for
- 
- delay_ms(2000);
- lcd_cmd(_LCD_CLEAR);
- lcd_out(1,1,"Pressione B1.");
- delay_ms(500);
- 
+last_read = EEPROM_Read(0x00);
+delay_ms(1);
+bytetostr(last_read, txt2);
+
+lcd_cmd(_LCD_CLEAR);
+delay_ms(10);
+lcd_out(1, 1, "Ultima leitura salva");
+lcd_out(2, 7, txt2);
+lcd_chr_cp('%');
+
+delay_ms(1000);
+
+for(i = 0; i < 16; i++)
+{
+    lcd_cmd(_LCD_SHIFT_LEFT);
+    delay_ms(250);
+}
+
+for(i = 0; i < 16; i++)
+{
+    lcd_cmd(_LCD_SHIFT_RIGHT);
+    delay_ms(250);
+}
+
+delay_ms(1000);
+lcd_cmd(_LCD_CLEAR);
+lcd_out(1, 1, "Pressione B1.");
+delay_ms(500);
+
+
   while(1)
   {
      Butt();
-     Duty();
+     Ldr1_func();
+     Ldr2_func();
      GravaEEprom();
      
       switch(count)
@@ -158,31 +184,31 @@ void main()
         delay_ms(100);
         portc |=(1<<3);
         portc &=~(1<<0);
-        for(i=0; i<15; i++)
+        
+        lcd_chr(1,1,'T');lcd_chr_cp('r');lcd_chr_cp('o'); lcd_chr_cp('c');lcd_chr_cp('a');lcd_chr_cp('r');
+        lcd_chr_cp(' ');lcd_chr_cp('F');lcd_chr_cp('i'); lcd_chr_cp('l');lcd_chr_cp('T');lcd_chr_cp('r');
+        lcd_chr_cp('o');
+        
+        for(i=0; i<16; i++)
          {
           lcd_cmd(_LCD_SHIFT_RIGHT);
-          lcd_chr(1,1,'T');lcd_chr_cp('r');lcd_chr_cp('o'); lcd_chr_cp('c');lcd_chr_cp('a');lcd_chr_cp('r');
-          lcd_chr_cp(' ');lcd_chr_cp('F');lcd_chr_cp('i'); lcd_chr_cp('l');lcd_chr_cp('T');lcd_chr_cp('r');
-          lcd_chr_cp('o');
           delay_ms(100);
           
          }
 
-         for(i=20; i>0; i--)
+         for(i=16; i>0; i--)
          {
           lcd_cmd(_LCD_SHIFT_LEFT);
-          lcd_chr(1,1,'T');lcd_chr_cp('r');lcd_chr_cp('o'); lcd_chr_cp('c');lcd_chr_cp('a');lcd_chr_cp('r');
-          lcd_chr_cp(' ');lcd_chr_cp('F');lcd_chr_cp('i'); lcd_chr_cp('l');lcd_chr_cp('T');lcd_chr_cp('r');
-          lcd_chr_cp('o');
           delay_ms(100);
          }
-         
+
       }//
 
       else
       {
         portc &=~(1<<3);
         portc |=(1<<0);
+        
         switch(count)
         {
           case 1: Show_disp(); break;
@@ -191,29 +217,27 @@ void main()
 
         }//end switch
 
-      }
+      }//end else
      
-     while(ldr<50)
+     while(ldr<30)
       {
-        lcd_cmd(_LCD_CLEAR);
+         lcd_cmd(_LCD_CLEAR);
+         lcd_out(1, 1, "Limpar os Leds");
+         lcd_out(2, 5, txt1);
+         lcd_out_cp("%");
+         
         for(i=0; i<15; i++)
          {
            lcd_cmd(_LCD_SHIFT_RIGHT);
-           lcd_out(1, 1, "Limpar os Leds");
-           lcd_out(2, 5, txt1);
-           lcd_out_cp("%");
            portc ^=(1<<5);
            delay_ms(100);
            
          }//end for
 
-         for(i=20; i>0; i--)
+        for(i=20; i>0; i--)
          {
            lcd_cmd(_LCD_SHIFT_LEFT);
-           lcd_out(1, 1, "Limpar os Leds");
-           lcd_out(2, 5, txt1);
-           lcd_out_cp("%");
-            portc ^=(1<<5);
+           portc ^=(1<<5);
            delay_ms(100);
 
          }//end for
@@ -226,19 +250,58 @@ void main()
 
 }//end main
 
-void Duty()
+void Ldr1_func()
 {
-
    ccpr1l=adc_read(0)>>0x02;
    ldr=ccpr1l;
    ldr/=2.55;         //variavel para adequar a conversão ad para exibir
    bytetostr(ldr, txt);    //no display
 
-   ldr2=adc_read(1)>>0x02;  //faz a conversaão de 10bits(1023) para 8bits(256)
+}//end duty
+
+void Ldr2_func()
+{
+  /* ldr2=adc_read(1)>>0x02;  //faz a conversaão de 10bits(1023) para 8bits(256)
    ldr2/=2.55;
    inttostr(ldr2, vet);
+   delay_ms(100); */
+   
+   int adc_puro;
+   float percentual_calculado;
+   float soma = 0;
+   int k;
 
-}//end duty
+   // 1. Leitura direta do canal 1 (sem deslocamento de bits para manter a precisão)
+   adc_puro = adc_read(1);
+   
+   if(adc_puro>= val_limpo)
+     percentual_calculado=100.0;
+   else if(adc_puro<= val_sujo)
+     percentual_calculado=0.0;
+   else
+     percentual_calculado = ((float)(adc_puro - val_sujo) / (float)(val_limpo - val_sujo)) * 100.0;
+     
+   historico_ldr2[indice_ldr2] = percentual_calculado;
+   indice_ldr2++;
+
+   if (indice_ldr2 >= N_mediamovel)
+   {
+       indice_ldr2 = 0;
+   }
+   
+   for(k=0; k< N_mediamovel; k++)
+       soma += historico_ldr2[k];
+       
+   ldr2=(int)(soma/N_mediamovel);
+   //inttostr(ldr2, vet);
+   
+   cen=ldr2/100;
+   dez=(ldr2%100)/10;
+   uni=ldr2%10;
+   
+   delay_ms(50);
+
+}//
 
 void Show_disp()
 {
@@ -282,7 +345,10 @@ void Menu1()
   lcd_chr_cp('r');
   lcd_chr_cp('o');
   lcd_chr_cp('2');
-  lcd_out(2, 3, vet);
+  //lcd_out(2, 3, vet);
+  lcd_chr(2,6, cen + 0x30);
+  lcd_chr_cp(dez + 0x30);
+  lcd_chr_cp(uni + 0x30);
   lcd_chr(2,9,'%');
 
 }//end menu
@@ -323,7 +389,7 @@ void Clear()
 void GravaEEprom()
 {
 
-    if(abs(ldr2-last_read) >25)
+    if(abs(ldr2-last_read) >10)
      {
         EEPROM_Write(0x00, ldr2);
         delay_ms(20);
